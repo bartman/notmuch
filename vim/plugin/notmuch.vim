@@ -191,6 +191,17 @@ function! s:NM_cmd_folders(words)
                 call add(searches, search)
         endfor
 
+        call add(disp, '--------------------------------------------------------------------------------')
+        call add(searches, '')
+
+        for tag in <SID>NM_get_tag_names([])
+                let search = 'tag:' . tag
+                let data = s:NM_run(cmd + [search])
+                let cnt = matchlist(data, '\(\d\+\)')[1]
+                call add(disp, printf('%9d %-20s (%s)', cnt, tag, search))
+                call add(searches, search)
+        endfor
+
         call <SID>NM_newBuffer('', 'folders', join(disp, "\n"))
         let b:nm_searches = searches
         let b:nm_timestamp = reltime()
@@ -210,12 +221,15 @@ function! s:NM_folders_refresh_view()
         let lno = line('.')
         setlocal bufhidden=delete
         call s:NM_cmd_folders([])
-        exec printf('norm %dG', lno)
+        call cursor(lno, 1)
 endfunction
 
 function! s:NM_folders_show_search()
         let line = line('.')
         let search = b:nm_searches[line-1]
+        if !strlen(search)
+                return
+        endif
 
         let prev_bufnr = bufnr('%')
         setlocal bufhidden=hide
@@ -1479,6 +1493,7 @@ function! NotMuch(args)
         if words[0] == 'folders' || words[0] == 'f'
                 let words = words[1:]
                 call <SID>NM_cmd_folders(words)
+                call cursor(1, 1)
 
         elseif words[0] == 'search' || words[0] == 's'
                 if len(words) > 1
