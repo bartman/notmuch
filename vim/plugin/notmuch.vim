@@ -279,8 +279,8 @@ function! s:NM_search_show_thread(everything)
 endfunction
 
 function! s:NM_search_prompt()
-        " TODO: input() can support completion
-        let text = input('NotMuch Search: ')
+        let text = input('NotMuch Search: ', '',
+                        \ 'customlist,NM_complete_search_expression')
         if strlen(text)
                 let tags = split(text)
         else
@@ -301,8 +301,8 @@ function! s:NM_search_prompt()
 endfunction
 
 function! s:NM_search_edit()
-        " TODO: input() can support completion
-        let text = input('NotMuch Search: ', join(b:nm_search_words, ' '))
+        let text = input('NotMuch Search: ', join(b:nm_search_words),
+                        \ 'customlist,NM_complete_search_expression')
         if strlen(text)
                 call <SID>NM_cmd_search(split(text))
         endif
@@ -315,16 +315,18 @@ function! s:NM_search_archive_thread()
 endfunction
 
 function! s:NM_search_filter()
-        call <SID>NM_search_filter_helper('Filter: ', '', '')
+        call <SID>NM_search_filter_helper('Filter: ', '', '',
+                  \ 'customlist,NM_complete_search_expression')
 endfunction
 
 function! s:NM_search_filter_by_tag()
-        call <SID>NM_search_filter_helper('Filter Tag(s): ', 'tag:', 'and')
+        call <SID>NM_search_filter_helper('Filter Tag(s): ', 'tag:', 'and',
+                                         \ 'customlist,NM_complete_tag_names')
 endfunction
 
-function! s:NM_search_filter_helper(prompt, prefix, joiner)
-        " TODO: input() can support completion
-        let text = substitute(input(a:prompt), '\v(^\s*|\s*$|\n)', '', 'g')
+function! s:NM_search_filter_helper(prompt, prefix, joiner, completion)
+        let text = input(a:prompt, '', a:completion)
+        let text = substitute(text, '\v(^\s*|\s*$|\n)', '', 'g')
         if !strlen(text)
                 return
         endif
@@ -392,8 +394,8 @@ endfunction
 
 function! s:NM_search_add_remove_tags(prompt, prefix, intags)
         if type(a:intags) != type([]) || len(a:intags) == 0
-                " TODO: input() can support completion
-                let text = input(a:prompt)
+                let text = input(a:prompt, '',
+                                \ 'customlist,NM_complete_plus_minus_tag_names')
                 if !strlen(text)
                         return
                 endif
@@ -968,7 +970,7 @@ function! s:NM_compose_send()
         let body_starts = lnum
 
         "[-a header] [-b bcc-addr] [-c cc-addr] [-s subject] to-addr
-        let cmd = ['mail']
+        let cmd = ['mail', '-a', 'X-Mailer: notmuch.vim']
         let tos = []
         for [key, vals] in items(hdrs)
                 if key == 'To'
@@ -1285,6 +1287,77 @@ function! s:NM_combine_tags(word_prefix, words, separator, brackets)
         return res
 endfunction
 
+" --- completion helpers {{{1
+
+function! s:NM_get_tag_names(filter)
+        let cmd = ['search-tags']
+        call extend(cmd, a:filter)
+        return split(<SID>NM_run(cmd),'\n')
+endfunction
+
+function! s:NM_get_message_or_thread_id()
+        try
+                let id = s:NM_show_message_id()
+                return id
+        endtry
+        try
+                let id = s:NM_search_thread_id()
+                return id
+        endtry
+        throw 'Eeek! couldn''t find the message or the thead id!'
+endfunction
+
+" complete tag names without prefix
+function! NM_complete_tag_names(arglead,cmdline,cursorpos)
+        let filter = exists('b:nm_search_words') ? b:nm_search_words : []
+        let words = <SID>NM_get_tag_names(filter)
+        return filter(words, 'v:val =~ ''^'.a:arglead.'''')
+endfunction
+
+" complete tag names with a [+-] prefix
+function! NM_complete_plus_minus_tag_names(arglead,cmdline,cursorpos)
+        let id = <SID>NM_get_message_or_thread_id()
+        let have_tags = <SID>NM_get_tag_names([id])
+
+        let lead = a:arglead[0]
+        if lead == '-'
+                call map(have_tags, '"-" . v:val')
+                return filter(have_tags, 'v:val =~ ''^-'.a:arglead.'''')
+
+        elseif lead == '+'
+                let have_tag_bitmap = {}
+                for tag in have_tags
+                        have_tag_bitmap[tag] = 1
+                endfor
+                let tags = <SID>NM_get_tag_names([])
+                call filter(tags, '!has_key(have_tag_bitmap,v:val)')
+                call map(have_tags, '"+" . v:val')
+                return filter(have_tags, 'v:val =~ ''^+'.a:arglead.'''')
+
+        endif
+        return []
+endif
+endfunction
+
+" search terms can have various prefixes, and we can complete tags
+function! NM_complete_search_expression(arglead,cmdline,cursorpos)
+        let prefixes = { 'from':1, 'to':1, 'subject':1, 'attachment':1, 'tag':1, 'id':1, 'thread':1 }
+        if match(a:arglead, ':') == -1
+                let choices = keys(prefixes)
+                call map(choices, 'v:val . ":"')
+                return filter(choices, 'v:val =~ ''^'.a:arglead.'''')
+        endif
+
+        if match(a:arglead, '^tag:') == 0
+                let choices = <SID>NM_get_tag_names([])
+                call map(choices, '"tag:" . v:val')
+                return filter(choices, 'v:val =~ ''^'.a:arglead.'''')
+        endif
+
+        return []
+endfunction
+
+
 " --- other helpers {{{1
 
 function! s:NM_get_search_words()
@@ -1316,7 +1389,7 @@ endfunction
 function! s:NM_add_remove_tags(filter, prefix, tags)
         let filter = len(a:filter) ? a:filter : [<SID>NM_search_thread_id()]
         if !len(filter)
-                throw 'Eeek! I couldn''t find the thead id!'
+                throw 'Eeek! couldn''t find the thead id!'
         endif
         call map(a:tags, 'a:prefix . v:val')
         let args = ['tag']
