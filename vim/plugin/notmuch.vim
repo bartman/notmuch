@@ -984,7 +984,7 @@ function! s:NM_compose_send()
         let body_starts = lnum
 
         "[-a header] [-b bcc-addr] [-c cc-addr] [-s subject] to-addr
-        let cmd = ['mail', '-a', 'X-Mailer: notmuch.vim']
+        let cmd = ['mail', '-a', 'User-Agent: notmuch.vim']
         let tos = []
         for [key, vals] in items(hdrs)
                 if key == 'To'
